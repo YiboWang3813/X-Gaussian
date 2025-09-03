@@ -20,7 +20,7 @@ def PILtoTorch_Xray(pil_image):
     resized_image = torch.from_numpy(pil_image)
     if len(resized_image.shape) == 3:
         return resized_image.permute(2, 0, 1)
-    else:
+    else:  # (H, W) -> (1, H, W)
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
 
 

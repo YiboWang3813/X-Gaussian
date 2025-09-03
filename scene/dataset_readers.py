@@ -18,6 +18,34 @@ from pdb import set_trace as stx
 
 class ConeGeometry(object):
     def __init__(self, data):
+        """
+        numTrain <class 'int'> 50
+        numVal <class 'int'> 50
+        DSD <class 'float'> 1500.0
+        DSO <class 'float'> 1000.0
+        nDetector <class 'list'> [256, 256]
+        dDetector <class 'list'> [1.0, 1.0]
+        nVoxel <class 'list'> [128, 128, 128]
+        dVoxel <class 'list'> [1.0, 1.0, 1.0]
+        offOrigin <class 'list'> [0, 0, 0]
+        offDetector <class 'list'> [0, 0]
+        accuracy <class 'float'> 0.5
+        mode <class 'str'> cone
+        filter <class 'NoneType'> None
+        totalAngle <class 'float'> 180.0
+        startAngle <class 'float'> 0.0
+        randomAngle <class 'bool'> False
+        convert <class 'bool'> False
+        rescale_slope <class 'float'> 1.0
+        rescale_intercept <class 'float'> 0.0
+        normalize <class 'bool'> True
+        noise <class 'int'> 0
+        image (128, 128, 128)
+        train angles (50,)
+        train projections (50, 256, 256)
+        val angles (50,)
+        val projections (50, 256, 256)
+        """
 
         scale = 1.0
 
@@ -43,17 +71,17 @@ class ConeGeometry(object):
 
 
 def get_voxels(geo: ConeGeometry):
-        """
-        Get the voxels.
-        """
-        n1, n2, n3 = geo.nVoxel
-        s1, s2, s3 = geo.sVoxel / 2 - geo.dVoxel / 2  
+    """
+    Get the voxels. 从.pickle文件中获得稠密的点坐标 (n1, n2, n3, 3)
+    """
+    n1, n2, n3 = geo.nVoxel
+    s1, s2, s3 = geo.sVoxel / 2 - geo.dVoxel / 2  
 
-        xyz = np.meshgrid(np.linspace(-s1, s1, n1),
-                        np.linspace(-s2, s2, n2),
-                        np.linspace(-s3, s3, n3), indexing="ij")
-        voxel = np.asarray(xyz).transpose([1, 2, 3, 0])
-        return voxel
+    xyz = np.meshgrid(np.linspace(-s1, s1, n1),
+                    np.linspace(-s2, s2, n2),
+                    np.linspace(-s3, s3, n3), indexing="ij")
+    voxel = np.asarray(xyz).transpose([1, 2, 3, 0])
+    return voxel
 
 
 
@@ -71,16 +99,16 @@ class CameraInfo(NamedTuple):
 
 
 class CameraInfo_Xray(NamedTuple):
-    uid: int            
-    R: np.array         
-    T: np.array         
-    FovY: np.array      
-    FovX: np.array      
-    image: np.array     
-    image_name: str     
-    width: int          
-    height: int         
-    angle: float        
+    uid: int            # 唯一id 
+    R: np.array         # 旋转矩阵 (3, 3)
+    T: np.array         # 平移向量 (3,)
+    FovY: np.array      # y方向视场角 (1,) 
+    FovX: np.array      # x方向视场角 (1,)
+    image: np.array     # 图像 (H, W)
+    image_name: str     # str(uid)
+    width: int          # W
+    height: int         # H
+    angle: float        # 角度用来产生R和T的
 
 
 class SceneInfo(NamedTuple):
@@ -346,14 +374,14 @@ def Xray_readCamerasFromTransforms(path, type = 'train'):
         data = pickle.load(handle)
     geometry = ConeGeometry(data)
 
-    projs = data[type]["projections"]
-    angles = data[type]["angles"]
-    h, w = projs[0].shape
+    projs = data[type]["projections"]  # (N, H, W) 投影的二维图像
+    angles = data[type]["angles"]  # (N,) 投影角度用来产生外参矩阵
+    h, w = projs[0].shape  # image height, width 
     fovx = focal2fov(geometry.DSD, w)
     
 
     for idx, image_arr in enumerate(projs):
-        c2w = angle2pose(geometry.DSO,angles[idx])
+        c2w = angle2pose(geometry.DSO, angles[idx])
         image_name = str(idx)
 
         w2c = np.linalg.inv(c2w)
@@ -361,9 +389,10 @@ def Xray_readCamerasFromTransforms(path, type = 'train'):
         T = w2c[:3, 3]
 
 
-        image = image_arr
+        image = image_arr  # (H, W)
         angle = angles[idx]
 
+        # 这些和idx无关应该写到循环外 
         fovy = focal2fov(geometry.DSD, h)
         FovY = fovy 
         FovX = fovx
@@ -431,10 +460,10 @@ def Xray_readNerfSyntheticInfo(path, eval, cube_pcd_init = True, interval = 2, a
         with open(path, "rb") as handle:
             data = pickle.load(handle)
         geometry = ConeGeometry(data)
-        pt_positions = get_voxels(geometry)
-        image_3d = data["image"]
+        pt_positions = get_voxels(geometry)  # (128, 128, 128, 3)
+        image_3d = data["image"]  # (128, 128, 128)
         s1, s2, s3, _ = pt_positions.shape
-        sampled_positions = pt_positions[::interval,::interval,::interval]
+        sampled_positions = pt_positions[::interval,::interval,::interval]  # 128 -> 128 / interval 
         
         xyz = sampled_positions.reshape(-1,3)
         num_pts = xyz.shape[0]
@@ -444,11 +473,12 @@ def Xray_readNerfSyntheticInfo(path, eval, cube_pcd_init = True, interval = 2, a
         storePly(ply_path, xyz, SH2RGB(shs) * 255)
 
     elif not os.path.exists(ply_path):
+        # 随机初始化点云 
         num_pts = 100_000
         print(f"Generating random point cloud ({num_pts})...")
 
-        xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
-        shs = np.random.random((num_pts, 3)) / 255.0
+        xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3  # position (N, 3)
+        shs = np.random.random((num_pts, 3)) / 255.0  # sh球谐 (N, 3)
         pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
         storePly(ply_path, xyz, SH2RGB(shs) * 255)    
     
